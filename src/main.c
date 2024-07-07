@@ -24,11 +24,15 @@
 
 #include "driver/uart.h"
 
-#define UART_NUM UART_NUM_0
-#define PAT_CHAR '\n'
+#define UART_NUM UART_NUM_1
+#define RX_PIN GPIO_NUM_32
+#define UART_BUF_SIZE 13
 
 #include "board.h"
 #include "ble_mesh_example_init.h"
+
+uint8_t * data;
+uint8_t readyToSend = 0;
 
 // Buffer sizes
 #define BUF_SIZE (1024)
@@ -215,13 +219,19 @@ static void example_ble_mesh_custom_model_cb(esp_ble_mesh_model_cb_event_t event
         break;
     case ESP_BLE_MESH_MODEL_PUBLISH_UPDATE_EVT:
         
-        esp_ble_mesh_model_publish (
-            param->model_publish_update.model,
-            ESP_BLE_MESH_VND_MODEL_OP_SEND,
-            length,
-            trans_data,
-            ROLE_NODE 
-        );
+        if ( readyToSend ) { 
+
+            esp_ble_mesh_model_publish (
+                param->model_publish_update.model,
+                ESP_BLE_MESH_VND_MODEL_OP_SEND,
+                13,
+                data,
+                ROLE_NODE 
+            );
+
+            memset( data, 0, UART_BUF_SIZE );
+            readyToSend = 0;
+        }
 
         ESP_LOGI(TAG, "Enviou mensagem");
         break;
@@ -260,8 +270,7 @@ static esp_err_t ble_mesh_init(void)
     return ESP_OK;
 }
 
-void app_main(void)
-{
+void ble_task ( void * param ) {
     esp_err_t err;
 
     ESP_LOGI(TAG, "Initializing...");
@@ -298,11 +307,47 @@ void app_main(void)
         ESP_LOGE(TAG, "Node name failed (err %d)", err);
     }
 
-    uart_driver_install(UART_NUM, BUF_SIZE * 2, 0, 0, NULL, 0);
-    uart_set_baudrate(UART_NUM, 115200);
-    uart_pattern_isr_register(UART_NUM, uart_pattern_isr, NULL);
-    uart_enable_pattern_det(UART_NUM, PAT_CHAR, 1);
-    uart_intr_config(UART_NUM, UART_INTR_FIFO_THRESH_LVL | UART_INTR_RXFIFO_FULL, 0);
-    uart_intr_enable(UART_NUM, UART_INTR_PATTERN_DET);
+    for (;;) {
+        vTaskDelay( pdMS_TO_TICKS(100) );
+    }
+}
 
+void cst_uart_task ( void * param ) {
+
+
+    uart_config_t uart_config = {
+        .baud_rate = 115200,
+        .data_bits = UART_DATA_8_BITS,
+        .parity = UART_PARITY_DISABLE,
+        .stop_bits = UART_STOP_BITS_1,
+        .flow_ctrl = UART_HW_FLOWCTRL_DISABLE
+    };
+
+    uart_set_pin(UART_NUM, UART_PIN_NO_CHANGE, RX_PIN, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
+    uart_driver_install(UART_NUM, 1024 * 2, 0, 0, NULL, 0);
+    uart_param_config(UART_NUM, &uart_config);
+
+    data = (uint8_t*) malloc(UART_BUF_SIZE + 1);
+
+    while (1) {
+        int len = uart_read_bytes(UART_NUM, data, UART_BUF_SIZE, 500 / portTICK_RATE_MS);
+        if (len == UART_BUF_SIZE) {
+            readyToSend = 1;
+            printf("Received %d bytes: ", len);
+            for (int i = 0; i < len; i++) {
+                ESP_LOGI( "UART", "%02X ", data[i]);
+            }
+            uart_flush_input(UART_NUM);
+            ESP_LOGI("UART", "\n");
+        }
+
+        vTaskDelay( pdMS_TO_TICKS( 250 ) );
+    }
+    free(data);
+}
+
+void app_main(void)
+{
+    xTaskCreatePinnedToCore( ble_task, "BLE task", 1024 * 6, NULL, 1, NULL, 1 );
+    xTaskCreatePinnedToCore( cst_uart_task, "UART task", 1024 * 2, NULL, 2, NULL, 0 );
 }

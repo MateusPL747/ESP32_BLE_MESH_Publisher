@@ -2,14 +2,14 @@ dependencies:
   example_init:
     component_hash: null
     source:
-      path: C:\Users\mateu\.platformio\packages\framework-espidf\examples\bluetooth\esp_ble_mesh\common_components\example_init
+      path: C:\.platformio\packages\framework-espidf\examples\bluetooth\esp_ble_mesh\common_components\example_init
       type: local
     version: '*'
   idf:
     component_hash: null
     source:
       type: idf
-    version: 5.1.2
-manifest_hash: 2dd59b95ea728b986274b4ebd1838e6cc7a399255559e5933082dc3074683bb5
+    version: 4.4.2
+manifest_hash: 93bbc831c7958f4799606884bf154b5609c2709558ed7d2dd67e8c836948f6b0
 target: esp32
 version: 1.0.0
