@@ -11,6 +11,8 @@
 #include <string.h>
 #include <inttypes.h>
 
+#include "esp_random.h"
+
 #include "esp_log.h"
 #include "nvs_flash.h"
 #include "esp_bt.h"
@@ -24,15 +26,16 @@
 
 #include "driver/uart.h"
 
-#define UART_NUM UART_NUM_1
-#define RX_PIN GPIO_NUM_32
+#define UART_NUM UART_NUM_2
+#define RX_PIN GPIO_NUM_16
 #define UART_BUF_SIZE 13
 
 #include "board.h"
 #include "ble_mesh_example_init.h"
 
 uint8_t * data;
-uint8_t readyToSend = 0;
+uint8_t readyToSend = 1;
+SemaphoreHandle_t xSerialData = NULL;
 
 // Buffer sizes
 #define BUF_SIZE (1024)
@@ -46,7 +49,8 @@ uint8_t readyToSend = 0;
 
 #define ESP_BLE_MESH_VND_MODEL_OP_SEND ESP_BLE_MESH_MODEL_OP_3(0x00, CID_ESP)
 #define ESP_BLE_MESH_VND_MODEL_OP_STATUS ESP_BLE_MESH_MODEL_OP_3(0x01, CID_ESP)
-#define ESP_BLE_MESH_VND_MODEL_OP_SUBS_READ ESP_BLE_MESH_MODEL_OP_3(0x03, CID_ESP)
+#define OP_CODE_SIZE 0x03
+#define ESP_BLE_MESH_VND_MODEL_OP_SUBS_READ ESP_BLE_MESH_MODEL_OP_3(0x5E, CID_ESP)
 
 static uint8_t dev_uuid[ESP_BLE_MESH_OCTET16_LEN] = {0x32, 0x10};
 
@@ -78,7 +82,8 @@ static esp_ble_mesh_model_op_t vnd_op[] = {
     ESP_BLE_MESH_MODEL_OP_END,
 };
 
-ESP_BLE_MESH_MODEL_PUB_DEFINE(sensor_pub, 100, ROLE_NODE);
+ESP_BLE_MESH_MODEL_PUB_DEFINE(sensor_pub, UART_BUF_SIZE + OP_CODE_SIZE + 4, ROLE_NODE);
+
 static esp_ble_mesh_model_t vnd_models[] = {
     ESP_BLE_MESH_VENDOR_MODEL(CID_ESP, ESP_BLE_MESH_VND_MODEL_ID_SERVER,
                               vnd_op, &sensor_pub, NULL),
@@ -169,6 +174,7 @@ static void example_ble_mesh_config_server_cb(esp_ble_mesh_cfg_server_cb_event_t
                 param->value.state_change.mod_pub_set.pub_addr,
                 param->value.state_change.mod_pub_set.company_id,
                 param->value.state_change.mod_pub_set.model_id);
+
             break;
         default:
             break;
@@ -176,20 +182,19 @@ static void example_ble_mesh_config_server_cb(esp_ble_mesh_cfg_server_cb_event_t
     }
 }
 
-esp_ble_mesh_model_cb_param_t *modelo_mesh;
+const uint8_t trans_data[] = {0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd };
 
 static void example_ble_mesh_custom_model_cb(esp_ble_mesh_model_cb_event_t event,
                                              esp_ble_mesh_model_cb_param_t *param)
 {
 
-    uint8_t length = 20;
-    uint8_t trans_data[length + 1];
-
-    modelo_mesh = param;
-
     switch (event)
     {
+
     case ESP_BLE_MESH_MODEL_OPERATION_EVT:
+        uint16_t tid = *(uint16_t *)param->model_operation.msg;
+        ESP_LOG_BUFFER_HEX( "CHEGOU_DNV", &tid, param->model_operation.length );
+
         if ( param->model_operation.opcode == ESP_BLE_MESH_VND_MODEL_OP_SEND )
         {
             uint16_t tid = *(uint16_t *)param->model_operation.msg;
@@ -217,24 +222,47 @@ static void example_ble_mesh_custom_model_cb(esp_ble_mesh_model_cb_event_t event
         }
         ESP_LOGI(TAG, "Send 0x%06" PRIx32, param->model_send_comp.opcode);
         break;
+
     case ESP_BLE_MESH_MODEL_PUBLISH_UPDATE_EVT:
-        
-        if ( readyToSend ) { 
 
-            esp_ble_mesh_model_publish (
-                param->model_publish_update.model,
-                ESP_BLE_MESH_VND_MODEL_OP_SEND,
-                13,
-                data,
-                ROLE_NODE 
-            );
+        memset( sensor_pub.model->op, ESP_BLE_MESH_VND_MODEL_OP_SEND, 3);
 
-            memset( data, 0, UART_BUF_SIZE );
-            readyToSend = 0;
+        uint8_t pub_data[UART_BUF_SIZE + OP_CODE_SIZE];
+
+        pub_data[2] = (ESP_BLE_MESH_VND_MODEL_OP_SEND >> 16) & 0xFF;
+        pub_data[1] = (ESP_BLE_MESH_VND_MODEL_OP_SEND >> 8) & 0xFF;
+        pub_data[0] = ESP_BLE_MESH_VND_MODEL_OP_SEND & 0xFF;
+
+        for ( int i = OP_CODE_SIZE; i < UART_BUF_SIZE + OP_CODE_SIZE; i++  ) {
+            pub_data[i] = trans_data[i - OP_CODE_SIZE];
         }
 
-        ESP_LOGI(TAG, "Enviou mensagem");
+        sensor_pub.msg->len = UART_BUF_SIZE + OP_CODE_SIZE;
+        // memcpy( (void *) sensor_pub.msg->data, &pub_data, (size_t) sensor_pub.msg->len );
+
+        ESP_LOG_BUFFER_HEX( "ENVIOU", &pub_data, sensor_pub.msg->len );
+
+        // esp_err_t err = esp_ble_mesh_model_publish (
+        //     param->model_publish_update.model,
+        //     ESP_BLE_MESH_VND_MODEL_OP_SEND,
+        //     sensor_pub.msg->len,
+        //     pub_data,
+        //     ROLE_NODE
+        // );
+
+        // if ( err )  ESP_LOGE( "DEU RUM",  "Failed to send message 0x%06x\n\n", ESP_BLE_MESH_VND_MODEL_OP_SUBS_READ);
+        // else
+        // {
+        //     ESP_LOG_BUFFER_HEX( "ERA",   trans_data, sensor_pub.msg->len );
+        //     ESP_LOG_BUFFER_HEX( "ENVIOU",   sensor_pub.msg->data, sensor_pub.msg->len );
+        // }
+
         break;
+    
+    // case ESP_BLE_MESH_MODEL_PUBLISH_COMP_EVT:
+    //     ESP_LOGI(TAG, "ESP_BLE_MESH_MODEL_PUBLISH_COMP_EVT, err_code %02x",
+    //              param->model_publish_comp.err_code);
+    //     break;
 
     default:
         break;
@@ -327,18 +355,28 @@ void cst_uart_task ( void * param ) {
     uart_driver_install(UART_NUM, 1024 * 2, 0, 0, NULL, 0);
     uart_param_config(UART_NUM, &uart_config);
 
-    data = (uint8_t*) malloc(UART_BUF_SIZE + 1);
+    if ( xSemaphoreTake( xSerialData, portMAX_DELAY ) == pdTRUE ) {
+        data = (uint8_t*) malloc(UART_BUF_SIZE + 1);
+        xSemaphoreGive( xSerialData );
+    }
 
     while (1) {
-        int len = uart_read_bytes(UART_NUM, data, UART_BUF_SIZE, 500 / portTICK_RATE_MS);
-        if (len == UART_BUF_SIZE) {
-            readyToSend = 1;
-            printf("Received %d bytes: ", len);
-            for (int i = 0; i < len; i++) {
-                ESP_LOGI( "UART", "%02X ", data[i]);
+        if ( xSemaphoreTake( xSerialData, portMAX_DELAY ) == pdTRUE ) {
+            
+            int len = uart_read_bytes(UART_NUM, data, UART_BUF_SIZE, portMAX_DELAY );
+            memcpy( &sensor_pub, data, (size_t) UART_BUF_SIZE );
+            if (len >= UART_BUF_SIZE) {
+                readyToSend = 1;
+                printf("Received %d bytes: ", len);
+                for (int i = 0; i < len; i++) {
+                    ESP_LOGI( "UART", "%02X ", data[i]);
+                }
+                uart_flush_input(UART_NUM);
+                ESP_LOGI("UART", "\n");
             }
-            uart_flush_input(UART_NUM);
-            ESP_LOGI("UART", "\n");
+
+            xSemaphoreGive( xSerialData );
+            vTaskDelay( pdMS_TO_TICKS( 100 ) );
         }
 
         vTaskDelay( pdMS_TO_TICKS( 250 ) );
@@ -348,6 +386,8 @@ void cst_uart_task ( void * param ) {
 
 void app_main(void)
 {
+    xSerialData = xSemaphoreCreateBinary();
+    
     xTaskCreatePinnedToCore( ble_task, "BLE task", 1024 * 6, NULL, 1, NULL, 1 );
-    xTaskCreatePinnedToCore( cst_uart_task, "UART task", 1024 * 2, NULL, 2, NULL, 0 );
+    // xTaskCreatePinnedToCore( cst_uart_task, "UART task", 1024 * 2, NULL, 2, NULL, 0 );
 }
