@@ -27,14 +27,14 @@
 #include "driver/uart.h"
 
 #define UART_NUM UART_NUM_2
-#define RX_PIN GPIO_NUM_16
+#define RX_PIN GPIO_NUM_17       // RX2
 #define UART_BUF_SIZE 13
 
 #include "board.h"
 #include "ble_mesh_example_init.h"
 
 uint8_t * data;
-uint8_t readyToSend = 1;
+uint8_t readyToSend = 0;
 SemaphoreHandle_t xSerialData = NULL;
 
 // Buffer sizes
@@ -50,7 +50,7 @@ SemaphoreHandle_t xSerialData = NULL;
 #define ESP_BLE_MESH_VND_MODEL_OP_SEND ESP_BLE_MESH_MODEL_OP_3(0x00, CID_ESP)
 #define ESP_BLE_MESH_VND_MODEL_OP_STATUS ESP_BLE_MESH_MODEL_OP_3(0x01, CID_ESP)
 #define OP_CODE_SIZE 0x03
-#define ESP_BLE_MESH_VND_MODEL_OP_SUBS_READ ESP_BLE_MESH_MODEL_OP_3(0x5E, CID_ESP)
+#define ESP_BLE_MESH_VND_MODEL_OP_SUBS_READ ESP_BLE_MESH_MODEL_OP_3(0x03, CID_ESP)
 
 static uint8_t dev_uuid[ESP_BLE_MESH_OCTET16_LEN] = {0x32, 0x10};
 
@@ -78,11 +78,16 @@ static esp_ble_mesh_model_t root_models[] = {
 };
 
 static esp_ble_mesh_model_op_t vnd_op[] = {
-    ESP_BLE_MESH_MODEL_OP(ESP_BLE_MESH_VND_MODEL_OP_SEND, 0),
+    // ESP_BLE_MESH_MODEL_OP(ESP_BLE_MESH_VND_MODEL_OP_SEND, 0),
+    ESP_BLE_MESH_MODEL_OP(ESP_BLE_MESH_VND_MODEL_OP_SUBS_READ, 3),
     ESP_BLE_MESH_MODEL_OP_END,
 };
 
-ESP_BLE_MESH_MODEL_PUB_DEFINE(sensor_pub, UART_BUF_SIZE + OP_CODE_SIZE + 4, ROLE_NODE);
+ESP_BLE_MESH_MODEL_PUB_DEFINE(
+    sensor_pub,
+    UART_BUF_SIZE + OP_CODE_SIZE + 4,
+    ROLE_NODE
+);
 
 static esp_ble_mesh_model_t vnd_models[] = {
     ESP_BLE_MESH_VENDOR_MODEL(CID_ESP, ESP_BLE_MESH_VND_MODEL_ID_SERVER,
@@ -182,7 +187,22 @@ static void example_ble_mesh_config_server_cb(esp_ble_mesh_cfg_server_cb_event_t
     }
 }
 
-const uint8_t trans_data[] = {0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd };
+uint8_t trans_data[] = {0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd };
+// uint8_t trans_data[] = {
+//     0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 
+//     0x20, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27, 0x28, 0x29, 
+//     0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39, 
+//     0x40, 0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x47, 0x48, 0x49, 
+//     0x50, 0x51, 0x52, 0x53, 0x54, 0x55, 0x56, 0x57, 0x58, 0x59, 
+//     0x60, 0x61, 0x62, 0x63, 0x64, 0x65, 0x66, 0x67, 0x68, 0x69, 
+//     0x70, 0x71, 0x72, 0x73, 0x74, 0x75, 0x76, 0x77, 0x78, 0x79, 
+//     0x80, 0x81, 0x82, 0x83, 0x84, 0x85, 0x86, 0x87, 0x88, 0x89, 
+//     0x90, 0x91, 0x92, 0x93, 0x94, 0x95, 0x96, 0x97, 0x98, 0x99, 
+//     0xa0, 0xa1, 0xa2, 0xa3, 0xa4, 0xa5, 0xa6, 0xa7, 0xa8, 0xa9, 
+//     0xb0, 0xb1, 0xb2, 0xb3, 0xb4, 0xb5, 0xb6, 0xb7, 0xb8, 0xb9, 
+//     0xc0, 0xc1, 0xc2, 0xc3, 0xc4, 0xc5, 0xc6, 0xc7, 0xc8, 0xc9, 
+//     0xdd, 0xd1, 0xd2, 0xd3, 0xd4, 0xd5, 0xd6, 0xd7, 0xd8, 0xd9
+// };
 
 static void example_ble_mesh_custom_model_cb(esp_ble_mesh_model_cb_event_t event,
                                              esp_ble_mesh_model_cb_param_t *param)
@@ -192,8 +212,6 @@ static void example_ble_mesh_custom_model_cb(esp_ble_mesh_model_cb_event_t event
     {
 
     case ESP_BLE_MESH_MODEL_OPERATION_EVT:
-        uint16_t tid = *(uint16_t *)param->model_operation.msg;
-        ESP_LOG_BUFFER_HEX( "CHEGOU_DNV", &tid, param->model_operation.length );
 
         if ( param->model_operation.opcode == ESP_BLE_MESH_VND_MODEL_OP_SEND )
         {
@@ -209,14 +227,17 @@ static void example_ble_mesh_custom_model_cb(esp_ble_mesh_model_cb_event_t event
 
         } else if (param->model_operation.opcode == ESP_BLE_MESH_VND_MODEL_OP_SUBS_READ) {
 
-            uint16_t tid = *(uint16_t *)param->model_operation.msg;
-            ESP_LOG_BUFFER_HEX( TAG, &tid, param->model_operation.length );
+            ESP_LOG_BUFFER_HEX(
+                "ESP_BLE_MESH_VND_MODEL_OP_SUBS_READ",
+                param->model_operation.msg,
+                param->model_operation.length 
+            );
             
         }
         break;
     case ESP_BLE_MESH_MODEL_SEND_COMP_EVT:
-        if (param->model_send_comp.err_code)
-        {
+
+        if (param->model_send_comp.err_code) {
             ESP_LOGE(TAG, "Failed to send message 0x%06" PRIx32, param->model_send_comp.opcode);
             break;
         }
@@ -225,44 +246,36 @@ static void example_ble_mesh_custom_model_cb(esp_ble_mesh_model_cb_event_t event
 
     case ESP_BLE_MESH_MODEL_PUBLISH_UPDATE_EVT:
 
-        memset( sensor_pub.model->op, ESP_BLE_MESH_VND_MODEL_OP_SEND, 3);
+        if ( readyToSend ) {
+            uint8_t pub_data[UART_BUF_SIZE + OP_CODE_SIZE];
 
-        uint8_t pub_data[UART_BUF_SIZE + OP_CODE_SIZE];
+            pub_data[2] = (ESP_BLE_MESH_VND_MODEL_OP_SUBS_READ >> 16) & 0xFF;
+            pub_data[1] = (ESP_BLE_MESH_VND_MODEL_OP_SUBS_READ >> 8) & 0xFF;
+            pub_data[0] = ESP_BLE_MESH_VND_MODEL_OP_SUBS_READ & 0xFF;
 
-        pub_data[2] = (ESP_BLE_MESH_VND_MODEL_OP_SEND >> 16) & 0xFF;
-        pub_data[1] = (ESP_BLE_MESH_VND_MODEL_OP_SEND >> 8) & 0xFF;
-        pub_data[0] = ESP_BLE_MESH_VND_MODEL_OP_SEND & 0xFF;
+            for ( int i = OP_CODE_SIZE; i < UART_BUF_SIZE + OP_CODE_SIZE; i++  ) {
+                pub_data[i] = trans_data[i - OP_CODE_SIZE];
+            }
 
-        for ( int i = OP_CODE_SIZE; i < UART_BUF_SIZE + OP_CODE_SIZE; i++  ) {
-            pub_data[i] = trans_data[i - OP_CODE_SIZE];
+            // param->model_publish_update.model->pub->msg->len = UART_BUF_SIZE + OP_CODE_SIZE;
+            // memcpy( param->model_publish_update.model->pub->msg, pub_data, UART_BUF_SIZE + OP_CODE_SIZE );
+
+            // ESP_LOG_BUFFER_HEX( "ENVIOU", sensor_pub.msg->data, OP_CODE_SIZE + UART_BUF_SIZE );
+            // ESP_LOG_BUFFER_HEX( "OPCODE", sensor_pub.model->op, OP_CODE_SIZE );
+            // ESP_LOG_BUFFER_HEX( "BUF", sensor_pub.msg->__buf, OP_CODE_SIZE + UART_BUF_SIZE );
+
+            esp_err_t err = esp_ble_mesh_model_publish (
+                param->model_publish_update.model,
+                ESP_BLE_MESH_VND_MODEL_OP_SUBS_READ,
+                UART_BUF_SIZE + OP_CODE_SIZE,
+                pub_data,
+                ROLE_NODE
+            );
+
+            if ( !err ) { readyToSend = 0; }
         }
 
-        sensor_pub.msg->len = UART_BUF_SIZE + OP_CODE_SIZE;
-        // memcpy( (void *) sensor_pub.msg->data, &pub_data, (size_t) sensor_pub.msg->len );
-
-        ESP_LOG_BUFFER_HEX( "ENVIOU", &pub_data, sensor_pub.msg->len );
-
-        // esp_err_t err = esp_ble_mesh_model_publish (
-        //     param->model_publish_update.model,
-        //     ESP_BLE_MESH_VND_MODEL_OP_SEND,
-        //     sensor_pub.msg->len,
-        //     pub_data,
-        //     ROLE_NODE
-        // );
-
-        // if ( err )  ESP_LOGE( "DEU RUM",  "Failed to send message 0x%06x\n\n", ESP_BLE_MESH_VND_MODEL_OP_SUBS_READ);
-        // else
-        // {
-        //     ESP_LOG_BUFFER_HEX( "ERA",   trans_data, sensor_pub.msg->len );
-        //     ESP_LOG_BUFFER_HEX( "ENVIOU",   sensor_pub.msg->data, sensor_pub.msg->len );
-        // }
-
         break;
-    
-    // case ESP_BLE_MESH_MODEL_PUBLISH_COMP_EVT:
-    //     ESP_LOGI(TAG, "ESP_BLE_MESH_MODEL_PUBLISH_COMP_EVT, err_code %02x",
-    //              param->model_publish_comp.err_code);
-    //     break;
 
     default:
         break;
@@ -342,7 +355,6 @@ void ble_task ( void * param ) {
 
 void cst_uart_task ( void * param ) {
 
-
     uart_config_t uart_config = {
         .baud_rate = 115200,
         .data_bits = UART_DATA_8_BITS,
@@ -351,35 +363,43 @@ void cst_uart_task ( void * param ) {
         .flow_ctrl = UART_HW_FLOWCTRL_DISABLE
     };
 
-    uart_set_pin(UART_NUM, UART_PIN_NO_CHANGE, RX_PIN, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
-    uart_driver_install(UART_NUM, 1024 * 2, 0, 0, NULL, 0);
-    uart_param_config(UART_NUM, &uart_config);
+    esp_err_t err;
 
-    if ( xSemaphoreTake( xSerialData, portMAX_DELAY ) == pdTRUE ) {
-        data = (uint8_t*) malloc(UART_BUF_SIZE + 1);
-        xSemaphoreGive( xSerialData );
-    }
+    err = uart_set_pin(UART_NUM, UART_PIN_NO_CHANGE, RX_PIN, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
+    if ( err != ESP_OK ) ESP_LOGE("UART", "Error seting up the pins");
+    err = uart_driver_install(UART_NUM, 1024 * 2, 0, 0, NULL, 0);
+    if ( err != ESP_OK ) ESP_LOGE("UART", "Error installing drivers");
+    err = uart_param_config(UART_NUM, &uart_config);
+    if ( err != ESP_OK ) ESP_LOGE("UART", "Error configuring UART");
+
+
+    // if ( xSemaphoreTake( xSerialData, portMAX_DELAY ) == pdTRUE ) {
+    //     data = (uint8_t*) malloc(UART_BUF_SIZE + 1);
+    //     xSemaphoreGive( xSerialData );
+    // }
+    data = (uint8_t*) malloc(UART_BUF_SIZE + 1);
 
     while (1) {
-        if ( xSemaphoreTake( xSerialData, portMAX_DELAY ) == pdTRUE ) {
+        // if ( xSemaphoreTake( xSerialData, portMAX_DELAY ) == pdTRUE ) {
             
-            int len = uart_read_bytes(UART_NUM, data, UART_BUF_SIZE, portMAX_DELAY );
-            memcpy( &sensor_pub, data, (size_t) UART_BUF_SIZE );
+            int len = uart_read_bytes(UART_NUM, data, UART_BUF_SIZE, pdMS_TO_TICKS(50) );
+            memcpy( trans_data, data, (size_t) UART_BUF_SIZE );
+
+            // printf("Opa\n");
+            // if ( len > 0 ) printf("Leu\n");
+            // else printf("n leu\n");
+
             if (len >= UART_BUF_SIZE) {
                 readyToSend = 1;
-                printf("Received %d bytes: ", len);
-                for (int i = 0; i < len; i++) {
-                    ESP_LOGI( "UART", "%02X ", data[i]);
-                }
+                // printf("Received %d bytes: ", len);
+                // ESP_LOG_BUFFER_HEX("UART", data, len);
                 uart_flush_input(UART_NUM);
-                ESP_LOGI("UART", "\n");
             }
 
-            xSemaphoreGive( xSerialData );
-            vTaskDelay( pdMS_TO_TICKS( 100 ) );
-        }
+        //     xSemaphoreGive( xSerialData );
+        // }
 
-        vTaskDelay( pdMS_TO_TICKS( 250 ) );
+        vTaskDelay( pdMS_TO_TICKS( 100 ) );
     }
     free(data);
 }
@@ -389,5 +409,5 @@ void app_main(void)
     xSerialData = xSemaphoreCreateBinary();
     
     xTaskCreatePinnedToCore( ble_task, "BLE task", 1024 * 6, NULL, 1, NULL, 1 );
-    // xTaskCreatePinnedToCore( cst_uart_task, "UART task", 1024 * 2, NULL, 2, NULL, 0 );
+    xTaskCreatePinnedToCore( cst_uart_task, "UART task", 1024 * 2, NULL, 2, NULL, 0 );
 }
