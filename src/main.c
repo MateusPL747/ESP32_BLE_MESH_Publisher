@@ -246,33 +246,34 @@ static void example_ble_mesh_custom_model_cb(esp_ble_mesh_model_cb_event_t event
 
     case ESP_BLE_MESH_MODEL_PUBLISH_UPDATE_EVT:
 
+        readyToSend = 1;
         if ( readyToSend ) {
             uint8_t pub_data[UART_BUF_SIZE + OP_CODE_SIZE];
 
-            pub_data[2] = (ESP_BLE_MESH_VND_MODEL_OP_SUBS_READ >> 16) & 0xFF;
-            pub_data[1] = (ESP_BLE_MESH_VND_MODEL_OP_SUBS_READ >> 8) & 0xFF;
-            pub_data[0] = ESP_BLE_MESH_VND_MODEL_OP_SUBS_READ & 0xFF;
+            pub_data[0] = (ESP_BLE_MESH_VND_MODEL_OP_SUBS_READ >> 16) & 0xFF;
+            pub_data[2] = (ESP_BLE_MESH_VND_MODEL_OP_SUBS_READ >> 8) & 0xFF;
+            pub_data[1] = ESP_BLE_MESH_VND_MODEL_OP_SUBS_READ & 0xFF;
 
             for ( int i = OP_CODE_SIZE; i < UART_BUF_SIZE + OP_CODE_SIZE; i++  ) {
                 pub_data[i] = trans_data[i - OP_CODE_SIZE];
             }
 
-            // param->model_publish_update.model->pub->msg->len = UART_BUF_SIZE + OP_CODE_SIZE;
-            // memcpy( param->model_publish_update.model->pub->msg, pub_data, UART_BUF_SIZE + OP_CODE_SIZE );
+            sensor_pub.msg->len = UART_BUF_SIZE + OP_CODE_SIZE;
+            memcpy( sensor_pub.msg->data, pub_data, UART_BUF_SIZE + OP_CODE_SIZE );
 
-            // ESP_LOG_BUFFER_HEX( "ENVIOU", sensor_pub.msg->data, OP_CODE_SIZE + UART_BUF_SIZE );
-            // ESP_LOG_BUFFER_HEX( "OPCODE", sensor_pub.model->op, OP_CODE_SIZE );
-            // ESP_LOG_BUFFER_HEX( "BUF", sensor_pub.msg->__buf, OP_CODE_SIZE + UART_BUF_SIZE );
+            ESP_LOG_BUFFER_HEX( "ENVIOU", sensor_pub.msg->data, OP_CODE_SIZE + UART_BUF_SIZE );
+            ESP_LOG_BUFFER_HEX( "OPCODE", sensor_pub.model->op, OP_CODE_SIZE );
+            ESP_LOG_BUFFER_HEX( "BUF", sensor_pub.msg->__buf, OP_CODE_SIZE + UART_BUF_SIZE );
 
-            esp_err_t err = esp_ble_mesh_model_publish (
-                param->model_publish_update.model,
-                ESP_BLE_MESH_VND_MODEL_OP_SUBS_READ,
-                UART_BUF_SIZE + OP_CODE_SIZE,
-                pub_data,
-                ROLE_NODE
-            );
+            // esp_err_t err = esp_ble_mesh_model_publish (
+            //     param->model_publish_update.model,
+            //     ESP_BLE_MESH_VND_MODEL_OP_SUBS_READ,
+            //     UART_BUF_SIZE + OP_CODE_SIZE,
+            //     pub_data,
+            //     ROLE_NODE
+            // );
 
-            if ( !err ) { readyToSend = 0; }
+            // if ( !err ) { readyToSend = 0; }
         }
 
         break;
@@ -304,7 +305,7 @@ static esp_err_t ble_mesh_init(void)
         return err;
     }
 
-    board_led_operation(LED_G, LED_ON);
+    // board_led_operation(LED_G, LED_ON);
 
     ESP_LOGI(TAG, "BLE Mesh Node initialized");
 
