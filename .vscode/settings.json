@@ -2,6 +2,7 @@
     "files.associations": {
         "string_view": "c",
         "uart.h": "c",
-        "esp_ble_mesh_provisioning_api.h": "c"
+        "esp_ble_mesh_provisioning_api.h": "c",
+        "esp_ble_mesh_config_model_api.h": "c"
     }
 }
